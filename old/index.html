@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+
+    <title>Pico Thermal Camera</title>
+
+    <style>
+        body {
+            background: #111;
+            color: white;
+            font-family: sans-serif;
+            text-align: center;
+        }
+
+        canvas {
+            border: 3px solid #555;
+        }
+    </style>
+
+</head>
+
+<body>
+
+    <h1>Thermal Camera</h1>
+
+    <canvas id="thermal" width="320" height="240"></canvas>
+
+    <script>
+
+        const canvas = document.getElementById("thermal")
+        const ctx = canvas.getContext("2d")
+
+        async function update() {
+
+            let res = await fetch("/stream")
+            let text = await res.text()
+
+            let lines = text.trim().split("\n")
+
+            let img = ctx.createImageData(320, 240)
+
+            let p = 0
+
+            for (let y = 0; y < 24; y++) {
+
+                let row = lines[y].trim().split(" ")
+
+                for (let x = 0; x < 32; x++) {
+
+                    let c = row[x].split(",")
+
+                    for (let dy = 0; dy < 10; dy++) {
+                        for (let dx = 0; dx < 10; dx++) {
+
+                            let px = ((y * 10 + dy) * 320 + (x * 10 + dx)) * 4
+
+                            img.data[px] = c[0]
+                            img.data[px + 1] = c[1]
+                            img.data[px + 2] = c[2]
+                            img.data[px + 3] = 255
+
+                        }
+                    }
+                }
+
+            }
+
+            ctx.putImageData(img, 0, 0)
+
+        }
+
+        setInterval(update, 500)
+
+    </script>
+
+</body>
+
+</html>
