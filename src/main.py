@@ -4,6 +4,7 @@ from mlx90640 import MLX90640, RefreshRate, init_float_array
 from netmgr import NetManager  # Your new class
 import json
 import math
+import time
 
 import secrets
 
@@ -33,19 +34,22 @@ class IrCameraServer:
 
         # Wait for Wi-Fi connection
         print("Connecting to Wi-Fi...")
+        print(f"MAC Address: {self.net.mac_addr}")
         while not self.net.connect_wifi():
             print("Retrying Wi-Fi...")
-            machine.sleep(500)
+            time.sleep(500)
 
         self.ip = self.net.wlan.ifconfig()[0]
         print(f"Connected! IP: {self.ip}")
+        
 
         # Initialize HTTP server
         self.server = MicroPyServer(host=self.ip)
         self.server.add_route('/', self.show_index)
-        self.server.add_route('/get_result_bytes', self.show_result)
-        self.server.add_route('/get_temperature_array', self.show_temperature_json)
-        self.server.add_route('/stats', self.show_stats)
+        self.server.add_route('/byte_array', self.show_result)
+        self.server.add_route('/temp_array', self.show_temperature_json)
+        self.server.add_route('/stats', self.compute_std_thermal_stats)
+        self.server.add_route('/adv_stats', self.compute_adv_thermal_stats)
 
     def show_temperature_json(self, request):
         # Get the latest frame
@@ -80,7 +84,7 @@ class IrCameraServer:
         # Optional: publish frame over MQTT as raw bytes
         self.net.publish("last_frame", bytes(self.frame))
 
-    def show_stats(self, request):
+    def compute_std_thermal_stats(self, request):
         # Get latest frame
         self.mlx.get_frame(self.frame)
 
@@ -123,6 +127,69 @@ class IrCameraServer:
         # Optional: publish stats to MQTT
         self.net.publish("last_frame_stats", json.dumps(stats))
 
+    def compute_adv_thermal_stats(self, request):
+
+        hot_threshold =60.0
+
+        self.mlx.get_frame(self.frame)
+        n = len(self.frame)
+
+        total = 0.0
+        min_val = self.frame[0]
+        max_val = self.frame[0]
+        hot_pixels = 0
+
+        center_pixel = self.frame[12 * 32 + 16]
+
+        for v in self.frame:
+            total += v
+
+            if v < min_val:
+                min_val = v
+
+            if v > max_val:
+                max_val = v
+
+            if v > hot_threshold:
+                hot_pixels += 1
+
+        avg = total / n
+
+        var = 0.0
+        for v in self.frame:
+            d = v - avg
+            var += d * d
+
+        stdev = math.sqrt(var / n)
+
+        sorted_frame = sorted(self.frame)
+
+        median = sorted_frame[n // 2]
+        p10 = sorted_frame[int(n * 0.10)]
+        p90 = sorted_frame[int(n * 0.90)]
+        p25 = sorted_frame[int(n * 0.25)]
+        p75 = sorted_frame[int(n * 0.75)]
+
+        stats = {
+            "avg": avg,
+            "median": median,
+            "stdev": stdev,
+            "min": min_val,
+            "max": max_val,
+            "range": max_val - min_val,
+            "p10": p10,
+            "p90": p90,
+            "iqr": p75 - p25,
+            "center": center_pixel,
+            "hot_pixels": hot_pixels,
+            "hotspot_strength": max_val - median
+        }
+
+        self.server.send('HTTP/1.0 200 OK\r\n')
+        self.server.send('Content-Type: application/json\r\n\r\n')
+        self.server.send(json.dumps(stats))
+        
+    
     def run(self):
         print(f"Starting server at http://{self.ip}/")
         self.server.start()

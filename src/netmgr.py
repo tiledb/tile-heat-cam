@@ -38,6 +38,12 @@ class NetManager:
         self.mqtt = None
         self.last_wifi_attempt = 0
 
+        # ---------------------- STORE MAC & IP ----------------------
+        mac_bytes = self.wlan.config('mac')
+        self.mac_addr = ubinascii.hexlify(mac_bytes, ':').decode()
+        self.ip_addr = self.wlan.ifconfig()[0] if self.wlan.isconnected() else None
+
+
     # ---------- Non-blocking WiFi connect ----------
     def connect_wifi(self):
         now = time.ticks_ms()
@@ -119,3 +125,19 @@ class NetManager:
         except Exception:
             self.mqtt = None
             return False
+        
+    def get_network_info(self):
+        """
+        Returns a dict with MAC address and IP of the Pico W.
+        """
+        if not self.wlan.active():
+            self.wlan.active(True)
+
+        mac_bytes = self.wlan.config('mac')
+        mac = ubinascii.hexlify(mac_bytes, ':').decode()
+        ip = self.wlan.ifconfig()[0] if self.wlan.isconnected() else None
+        return {
+            "mac": mac,
+            "ip": ip,
+            "ssid": self.wifi_ssid
+        }
