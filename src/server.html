@@ -328,9 +328,9 @@
 
         function fetchAndRenderImage() {
             const startedAt = Date.now();
-            const minDelay = 100;
+            const minDelay = 2000;
 
-            fetch('./result.bytes').then(r => r.arrayBuffer()).then(buf => {
+            fetch('./get_result_bytes').then(r => r.arrayBuffer()).then(buf => {
                 const data = new Float32Array(buf);
                 lastData = data;
                 if (data.length === width * height) drawHeatmap(data);
