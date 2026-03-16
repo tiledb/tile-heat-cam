@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Pico File Manager</title>
+
+    <style>
+        body {
+            font-family: Arial;
+            background: #1e1e1e;
+            color: #ddd;
+            margin: 20px;
+        }
+
+        h1 {
+            color: #6cf;
+        }
+
+        button {
+            padding: 6px 12px;
+            margin: 4px;
+            background: #333;
+            color: #eee;
+            border: 1px solid #666;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #555;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+
+        td,
+        th {
+            border-bottom: 1px solid #444;
+            padding: 8px;
+        }
+
+        tr:hover {
+            background: #2b2b2b;
+        }
+
+        #editor {
+            width: 100%;
+            height: 400px;
+            background: #111;
+            color: #eee;
+            border: 1px solid #555;
+            font-family: monospace;
+        }
+
+        #editorPanel {
+            display: none;
+            margin-top: 20px;
+        }
+
+        #uploadBox {
+            margin-top: 15px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>Pico File Manager</h1>
+
+    <button onclick="loadFiles()">Refresh</button>
+    <button onclick="reboot()">Reboot Pico</button>
+
+    <h2>Files</h2>
+
+    <table id="fileTable">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+
+
+    <div id="uploadBox">
+        <h2>Upload File</h2>
+        <input type="file" id="uploadFile">
+        <button onclick="upload()">Upload</button>
+    </div>
+
+
+    <div id="editorPanel">
+
+        <h2 id="editTitle">Editor</h2>
+
+        <textarea id="editor"></textarea>
+
+        <br>
+        <button onclick="saveFile()">Save</button>
+        <button onclick="closeEditor()">Close</button>
+
+    </div>
+
+
+    <script>
+
+        let currentFile = ""
+
+        function loadFiles() {
+
+            fetch("/files")
+                .then(r => r.json())
+                .then(files => {
+
+                    let table = document.querySelector("#fileTable tbody")
+                    table.innerHTML = ""
+
+                    files.forEach(f => {
+
+                        let row = document.createElement("tr")
+
+                        row.innerHTML =
+                            `
+<td>${f}</td>
+<td>
+<button onclick="download('${f}')">Download</button>
+<button onclick="editFile('${f}')">Edit</button>
+<button onclick="deleteFile('${f}')">Delete</button>
+</td>
+`
+
+                        table.appendChild(row)
+
+                    })
+
+                })
+
+        }
+
+        function download(file) {
+
+            window.location = "/download?file=" + file
+
+        }
+
+        function deleteFile(file) {
+
+            if (!confirm("Delete " + file + " ?")) return
+
+            fetch("/delete?file=" + file)
+                .then(() => loadFiles())
+
+        }
+
+        function upload() {
+            let file = document.getElementById("uploadFile").files[0];
+            if (!file) return;
+
+            let reader = new FileReader();
+            reader.onload = function () {
+                let content = btoa(reader.result); // Base64 encode
+
+                fetch("/upload", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/x-www-form-urlencoded"
+                    },
+                    body: "filename=" + encodeURIComponent(file.name) +
+                        "&content=" + encodeURIComponent(content)
+                })
+                    .then(r => r.text())
+                    .then(() => loadFiles());
+            }
+            reader.readAsBinaryString(file);
+        }
+
+        function editFile(file) {
+
+            fetch("/download?file=" + file)
+                .then(r => r.text())
+                .then(text => {
+
+                    currentFile = file
+
+                    document.getElementById("editor").value = text
+                    document.getElementById("editTitle").innerText = "Editing: " + file
+
+                    document.getElementById("editorPanel").style.display = "block"
+
+                })
+
+        }
+
+        function saveFile() {
+            let content = document.getElementById("editor").value
+
+            fetch("/save", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded"
+                },
+                body: "filename=" + encodeURIComponent(currentFile) +
+                    "&content=" + encodeURIComponent(content)
+            })
+                .then(r => r.text())
+                .then(() => {
+                    alert("Saved!")
+                    loadFiles()
+                })
+        }
+
+        function closeEditor() {
+
+            document.getElementById("editorPanel").style.display = "none"
+
+        }
+
+        function reboot() {
+
+            if (!confirm("Reboot Pico?")) return
+
+            fetch("/reboot")
+
+        }
+
+        loadFiles()
+
+    </script>
+
+</body>
+
+</html>

@@ -1,4 +1,6 @@
 BOARD_NAME = "heat-cam"
+WEBREPL_PASS = "webpl"  # choose a strong password
+
 # BOARD_ID = "lbt-mb2"
 # BOARD_ID = "t01"
 BOARD_ID = "hc01"
