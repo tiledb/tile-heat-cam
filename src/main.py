@@ -26,7 +26,7 @@ class IrCameraServer:
         self.server.send('HTTP/1.0 200 OK\r\n')
         self.server.send('Content-Type: text/html; charset=utf-8\r\n\r\n')
 
-        with open('renderer.html', 'r') as file:
+        with open('server.html', 'r') as file:
             self.server.send(file.read())
 
     def show_result(self, request):
