@@ -37,7 +37,7 @@ class IrCameraServer:
         print(f"MAC Address: {self.net.mac_addr}")
         while not self.net.connect_wifi():
             print("Retrying Wi-Fi...")
-            time.sleep(500)
+            time.sleep(5)
 
         self.ip = self.net.wlan.ifconfig()[0]
         print(f"Connected! IP: {self.ip}")
@@ -196,5 +196,6 @@ class IrCameraServer:
 
 
 # Usage
-camera_server = IrCameraServer()
-camera_server.run()
+if __name__ == "__main__":
+    camera_server = IrCameraServer()
+    camera_server.run()
