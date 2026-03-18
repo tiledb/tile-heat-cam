@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Thermal Dashboard</title>
+
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='style.css') }}"
+    />
+
+    <!-- Plotly -->
+    <script src="https://piro-atlas-lab.fysik.su.se/weblibs/plotly-3.1.1.min.js"></script>
+  </head>
+
+  <body>
+    <button id="resetButton" title="Hardware Reset">⟲</button>
+
+    <div id="container">
+      <div id="heatmap-wrapper">
+        <canvas id="image"></canvas>
+        <div class="canvas-labels">
+          <div id="minCanvasLabel"></div>
+          <div id="maxCanvasLabel"></div>
+        </div>
+
+        <div class="gradient-block">
+          <div class="gradient-bar"></div>
+          <div class="gradient-labels">
+            <span id="minGradientLabel">Min</span>
+            <span id="midGradientLabel">Mid</span>
+            <span id="maxGradientLabel">Max</span>
+          </div>
+        </div>
+      </div>
+
+      <div id="stats">
+        <div id="histogram"></div>
+      </div>
+
+      <div id="stats">
+        <h2>Thermal Stats</h2>
+        <div id="minTemp">Min: -- °C</div>
+        <div id="maxTemp">Max: -- °C</div>
+        <div id="avgTemp">Avg: -- °C</div>
+        <div id="medianTemp">Median: -- °C</div>
+        <div id="stdevTemp">Std Dev: --</div>
+        <div id="rangeTemp">Range: -- °C</div>
+        <div id="hotPixels">Hot Pixels: --</div>
+        <div id="hotspotStrength">Hotspot Strength: --</div>
+      </div>
+    </div>
+
+    <div id="resetModal">
+      <div id="resetBox">
+        <h2>⚠ HARDWARE RESET</h2>
+        <p>This will reboot the device.</p>
+        <p>Are you sure?</p>
+
+        <div class="resetButtons">
+          <button id="cancelReset">Cancel</button>
+          <button id="confirmReset">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
+</html>

@@ -1,19 +1,12 @@
 import machine
 from micropyserver import MicroPyServer
 from mlx90640 import MLX90640, RefreshRate, init_float_array
-from netmgr import NetManager  # Your new class
+from netmgr import NetManager
 import json
 import math
 import time
-import os
-import usocket as socket
-import sys
-import _thread
-
-
-import ubinascii  # MicroPython base64
-
 import secrets
+
 
 # Wi-Fi / MQTT configuration
 WIFI_SSID = secrets.WIFI_SSID
@@ -23,16 +16,23 @@ BASE_TOPIC = secrets.MQTT_BASE_TOPIC
 
 
 class IrCameraServer:
+
     def __init__(self):
-        # Initialize I2C for MLX90640
-        i2c = machine.I2C(0, sda=machine.Pin(4), scl=machine.Pin(5), freq=400000)
-        print("I2C Devices Found:", i2c.scan())
-        
+
+        # ---- RESET PIN SETUP ----
+        # GP22 connected to RUN
+        # Keep high impedance normally
+        self.reset_pin = machine.Pin(22, machine.Pin.IN)
+
+        # ---- I2C SETUP ----
+        i2c = machine.I2C(1, sda=machine.Pin(2), scl=machine.Pin(3), freq=400000)
+        print("I2C Devices Found:", [hex(dev) for dev in i2c.scan()])
+
         self.mlx = MLX90640(i2c)
         self.mlx.refresh_rate = RefreshRate.REFRESH_2_HZ
         self.frame = init_float_array(768)
 
-        # Initialize NetManager
+        # ---- NETWORK ----
         self.net = NetManager(
             wifi_ssid=WIFI_SSID,
             wifi_pass=WIFI_PASSWORD,
@@ -40,39 +40,18 @@ class IrCameraServer:
             base_topic=BASE_TOPIC
         )
 
-        # Wait for Wi-Fi connection
         print("Connecting to Wi-Fi...")
         print(f"MAC Address: {self.net.mac_addr}")
+
         while not self.net.connect_wifi():
             print("Retrying Wi-Fi...")
             time.sleep(5)
 
         self.ip = self.net.wlan.ifconfig()[0]
         print(f"Connected! IP: {self.ip}")
-        
 
-        # --- START WebREPL ---
-        # try:
-        #     self.start_socket_repl()
-        # except Exception as e:
-        #     print("WebREPL failed to start:", e)
-        # --- END WebREPL ---
-
-
-        # Initialize HTTP server
+        # ---- HTTP SERVER ----
         self.server = MicroPyServer(host=self.ip)
-
-        # File manager routes
-        self.server.add_route('/fm', self.file_manager_page)
-        
-        self.server.add_route('/files', self.list_files)
-        self.server.add_route('/download', self.download_file)
-        self.server.add_route('/upload', self.upload_file)
-        self.server.add_route('/delete', self.delete_file)
-        self.server.add_route('/save', self.save_file)
-        self.server.add_route('/reboot', self.reboot)
-        
-        
 
         self.server.add_route('/', self.show_index)
         self.server.add_route('/byte_array', self.show_result)
@@ -80,75 +59,74 @@ class IrCameraServer:
         self.server.add_route('/stats', self.compute_std_thermal_stats)
         self.server.add_route('/adv_stats', self.compute_adv_thermal_stats)
 
+        # Hardware reset endpoint
+        self.server.add_route('/hw_reset', self.hw_reset)
 
 
-    def start_socket_repl(self, port=23):
-        def repl_thread():
-            s = socket.socket()
-            s.bind(('0.0.0.0', port))
-            s.listen(1)
-            print(f"Socket REPL listening on port {port}...")
-            while True:
-                try:
-                    conn, addr = s.accept()
-                    print("Client connected from", addr)
-                    conn_in = conn.makefile('r')
-                    conn_out = conn.makefile('w')
-                    sys.stdin = conn_in
-                    sys.stdout = conn_out
-                    sys.stderr = conn_out
-
-                    while True:
-                        cmd = sys.stdin.readline()
-                        if cmd:
-                            exec(cmd)
-                except Exception as e:
-                    print("REPL thread error:", e)
-
-        _thread.start_new_thread(repl_thread, ())
-
-    def show_temperature_json(self, request):
-        # Get the latest frame
-        self.mlx.get_frame(self.frame)
-
-        # Convert 1D frame (768 values) to 2D (24 rows x 32 columns)
-        temp_2d = [self.frame[i*32:(i+1)*32] for i in range(24)]
-
-        # Send HTTP headers
-        self.server.send('HTTP/1.0 200 OK\r\n')
-        self.server.send('Content-Type: application/json; charset=utf-8\r\n\r\n')
-
-        # Convert 2D array to JSON and send
-        self.server.send(json.dumps(temp_2d))
-
-        # Optional: publish to MQTT
-        self.net.publish("last_frame_json", json.dumps(temp_2d))
+    # ---------------------------------------------------
+    # INDEX PAGE
+    # ---------------------------------------------------
 
     def show_index(self, request):
+
         self.server.send('HTTP/1.0 200 OK\r\n')
         self.server.send('Content-Type: text/html; charset=utf-8\r\n\r\n')
 
-        with open('server.html', 'r') as file:
-            self.server.send(file.read())
+        try:
+            with open('server.html', 'r') as file:
+                self.server.send(file.read())
+        except:
+            self.server.send("<h1>server.html missing</h1>")
+
+
+    # ---------------------------------------------------
+    # RAW FRAME
+    # ---------------------------------------------------
 
     def show_result(self, request):
+
         self.server.send('HTTP/1.0 200 OK\r\n')
         self.server.send('Content-Type: application/octet-stream\r\n\r\n')
+
         self.mlx.get_frame(self.frame)
         self.server.send_bytes(bytes(self.frame))
 
-        # Optional: publish frame over MQTT as raw bytes
         self.net.publish("last_frame", bytes(self.frame))
 
+
+    # ---------------------------------------------------
+    # TEMPERATURE JSON
+    # ---------------------------------------------------
+
+    def show_temperature_json(self, request):
+
+        self.mlx.get_frame(self.frame)
+
+        temp_2d = [self.frame[i*32:(i+1)*32] for i in range(24)]
+
+        payload = json.dumps(temp_2d)
+
+        self.server.send('HTTP/1.0 200 OK\r\n')
+        self.server.send('Content-Type: application/json; charset=utf-8\r\n\r\n')
+        self.server.send(payload)
+
+        self.net.publish("last_frame_json", payload)
+
+
+    # ---------------------------------------------------
+    # STANDARD STATS
+    # ---------------------------------------------------
+
     def compute_std_thermal_stats(self, request):
-        # Get latest frame
+
         self.mlx.get_frame(self.frame)
 
         n = len(self.frame)
+
         if n == 0:
             stats = {"avg": 0, "stdev": 0, "min": 0, "max": 0}
         else:
-            # Compute sum and min/max
+
             total = 0
             min_val = self.frame[0]
             max_val = self.frame[0]
@@ -162,10 +140,10 @@ class IrCameraServer:
 
             avg = total / n
 
-            # Compute standard deviation
             variance = 0
             for val in self.frame:
                 variance += (val - avg) ** 2
+
             stdev = math.sqrt(variance / n)
 
             stats = {
@@ -175,18 +153,22 @@ class IrCameraServer:
                 "max": max_val
             }
 
-        # Send HTTP response
+        payload = json.dumps(stats)
+
         self.server.send('HTTP/1.0 200 OK\r\n')
         self.server.send('Content-Type: application/json; charset=utf-8\r\n\r\n')
-        self.server.send(json.dumps(stats))
-        
+        self.server.send(payload)
 
-        # Optional: publish stats to MQTT
-        self.net.publish("last_frame_stats", json.dumps(stats))
+        self.net.publish("last_frame_stats", payload)
+
+
+    # ---------------------------------------------------
+    # ADVANCED STATS
+    # ---------------------------------------------------
 
     def compute_adv_thermal_stats(self, request):
 
-        hot_threshold =60.0
+        hot_threshold = 60.0
 
         self.mlx.get_frame(self.frame)
         n = len(self.frame)
@@ -199,6 +181,7 @@ class IrCameraServer:
         center_pixel = self.frame[12 * 32 + 16]
 
         for v in self.frame:
+
             total += v
 
             if v < min_val:
@@ -245,186 +228,44 @@ class IrCameraServer:
         self.server.send('HTTP/1.0 200 OK\r\n')
         self.server.send('Content-Type: application/json\r\n\r\n')
         self.server.send(json.dumps(stats))
-        
-    
+
+
+    # ---------------------------------------------------
+    # HARDWARE RESET
+    # ---------------------------------------------------
+
+    def hw_reset(self, request):
+
+        self.server.send("HTTP/1.0 200 OK\r\n")
+        self.server.send("Content-Type: text/plain\r\n\r\n")
+        self.server.send("Hardware reset triggered")
+
+        time.sleep(0.2)
+
+        print("Pulling RUN low...")
+
+        # Switch pin to output low to reset Pico
+        self.reset_pin.init(machine.Pin.OUT)
+        self.reset_pin.value(0)
+
+        # MCU resets immediately, code never continues
+
+
+    # ---------------------------------------------------
+    # RUN SERVER
+    # ---------------------------------------------------
+
     def run(self):
+
         print(f"Starting server at http://{self.ip}/")
         self.server.start()
 
-    def file_manager_page(self, request):
 
-        try:
-            with open("file_manager.html") as f:
-                html = f.read()
-        except:
-            html = "<h1>file_manager.html missing</h1>"
+# -------------------------------------------------------
+# MAIN
+# -------------------------------------------------------
 
-        self.server.send("HTTP/1.0 200 OK\r\n")
-        self.server.send("Content-Type: text/html\r\n\r\n")
-        self.server.send(html)
-
-
-    def list_files(self, request):
-
-        try:
-            files = os.listdir()
-        except:
-            files = []
-
-        self.server.send("HTTP/1.0 200 OK\r\n")
-        self.server.send("Content-Type: application/json\r\n\r\n")
-        self.server.send(json.dumps(files))
-
-
-    def download_file(self, request):
-
-        filename = self.get_query_param(request, "file")
-
-        if not filename:
-            self.server.send("HTTP/1.0 400 Bad Request\r\n\r\n")
-            return
-
-        try:
-            with open(filename, "rb") as f:
-
-                self.server.send("HTTP/1.0 200 OK\r\n")
-                self.server.send("Content-Type: application/octet-stream\r\n")
-                self.server.send("Content-Disposition: attachment\r\n\r\n")
-
-                while True:
-                    chunk = f.read(512)
-                    if not chunk:
-                        break
-                    self.server.send_bytes(chunk)
-
-        except Exception as e:
-
-            print("Download error:", e)
-            self.server.send("HTTP/1.0 404 Not Found\r\n\r\n")
-
-
-
-
-    def upload_file(self, request):
-        try:
-            header, body = request.split("\r\n\r\n", 1)
-
-            # parse urlencoded body
-            params = {}
-            for pair in body.split("&"):
-                if "=" in pair:
-                    k,v = pair.split("=",1)
-                    params[k] = v
-
-            filename = params.get("filename")
-            content_b64 = params.get("content","")
-
-            if not filename:
-                raise Exception("Filename missing")
-
-            # decode Base64
-            content_bytes = ubinascii.a2b_base64(content_b64)
-
-            # write file
-            with open(filename, "wb") as f:
-                f.write(content_bytes)
-
-            print("Uploaded:", filename)
-
-            self.server.send("HTTP/1.0 200 OK\r\n")
-            self.server.send("Content-Type: text/plain\r\n\r\n")
-            self.server.send("OK")
-
-        except Exception as e:
-            print("Upload error:", e)
-            try:
-                self.server.send("HTTP/1.0 500 Internal Server Error\r\n\r\n")
-            except:
-                pass
-
-    def delete_file(self, request):
-
-        filename = self.get_query_param(request, "file")
-
-        if not filename:
-            self.server.send("HTTP/1.0 400 Bad Request\r\n\r\n")
-            return
-
-        try:
-            os.remove(filename)
-            print("Deleted:", filename)
-
-        except Exception as e:
-            print("Delete error:", e)
-
-        self.server.send("HTTP/1.0 200 OK\r\n\r\n")
-
-
-    def save_file(self, request):
-        try:
-            header, body = request.split("\r\n\r\n", 1)
-
-            # parse urlencoded body
-            params = {}
-            for pair in body.split("&"):
-                if "=" in pair:
-                    k,v = pair.split("=",1)
-                    params[k] = v
-
-            filename = params.get("filename")
-            content = params.get("content","")
-
-            if not filename:
-                raise Exception("Filename missing")
-
-            # write file
-            with open(filename, "w") as f:
-                f.write(content)
-
-            print("Saved:", filename)
-
-            self.server.send("HTTP/1.0 200 OK\r\n")
-            self.server.send("Content-Type: text/plain\r\n\r\n")
-            self.server.send("OK")
-
-        except Exception as e:
-            print("Save error:", e)
-            try:
-                self.server.send("HTTP/1.0 500 Internal Server Error\r\n\r\n")
-            except:
-                pass
-
-    def get_query_param(self, request, name):
-
-        try:
-
-            line = request.split("\r\n")[0]
-            path = line.split(" ")[1]
-
-            if "?" not in path:
-                return None
-
-            params = path.split("?",1)[1]
-
-            for p in params.split("&"):
-                k,v = p.split("=",1)
-                if k == name:
-                    return v
-
-        except:
-            pass
-
-        return None
-
-
-    def reboot(self, request):
-
-        self.server.send("HTTP/1.0 200 OK\r\n\r\n")
-
-        time.sleep(1)
-        machine.reset()
-        
-# Usage
 if __name__ == "__main__":
+
     camera_server = IrCameraServer()
     camera_server.run()

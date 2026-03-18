@@ -140,144 +140,10 @@
         #heatmap-wrapper:hover #image {
             filter: blur(2px);
         }
-
-        /* RESET BUTTON */
-
-        #resetButton {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            width: 60px;
-            height: 60px;
-
-            border-radius: 50%;
-            border: none;
-
-            font-size: 28px;
-            cursor: pointer;
-
-            color: white;
-            background: linear-gradient(135deg, #ff4c4c, #ff0000);
-
-            box-shadow: 0 0 15px rgba(255, 0, 0, 0.6);
-
-            transition: all 0.25s ease;
-
-            z-index: 1000;
-        }
-
-        #resetButton:hover {
-            transform: scale(1.15) rotate(-15deg);
-        }
-
-        #resetButton:active {
-            transform: scale(0.9) rotate(180deg);
-        }
-
-
-        /* RESET MODAL */
-
-        #resetModal {
-            position: fixed;
-            inset: 0;
-
-            display: flex;
-            justify-content: center;
-            align-items: center;
-
-            backdrop-filter: blur(6px);
-
-            background: rgba(0, 0, 0, 0.6);
-
-            opacity: 0;
-            pointer-events: none;
-
-            transition: opacity 0.3s ease;
-
-            z-index: 2000;
-        }
-
-        #resetModal.active {
-            opacity: 1;
-            pointer-events: all;
-        }
-
-
-        /* MODAL BOX */
-
-        #resetBox {
-            background: #0f0f1a;
-            border-radius: 12px;
-
-            padding: 30px 40px;
-
-            text-align: center;
-
-            box-shadow:
-                0 0 20px rgba(255, 0, 0, 0.5),
-                0 0 40px rgba(255, 0, 0, 0.2);
-
-            transform: scale(0.8);
-            transition: transform 0.3s ease;
-        }
-
-        #resetModal.active #resetBox {
-            transform: scale(1);
-        }
-
-        #resetBox h2 {
-            color: #ff4c4c;
-            text-shadow: 0 0 10px #ff0000;
-        }
-
-
-        /* BUTTONS */
-
-        .resetButtons {
-            margin-top: 20px;
-            display: flex;
-            gap: 20px;
-            justify-content: center;
-        }
-
-        .resetButtons button {
-            padding: 10px 20px;
-
-            border-radius: 8px;
-            border: none;
-
-            font-size: 16px;
-            cursor: pointer;
-
-            transition: all 0.2s ease;
-        }
-
-        #cancelReset {
-            background: #444;
-            color: white;
-        }
-
-        #cancelReset:hover {
-            background: #666;
-        }
-
-        #confirmReset {
-            background: linear-gradient(135deg, #ff4c4c, #ff0000);
-            color: white;
-
-            box-shadow: 0 0 10px rgba(255, 0, 0, 0.6);
-        }
-
-        #confirmReset:hover {
-            transform: scale(1.1);
-        }
     </style>
 </head>
 
-
-
 <body>
-    <button id="resetButton" title="Hardware Reset">⟲</button>
     <div id="container">
         <div id="heatmap-wrapper">
             <canvas id="image"></canvas>
@@ -308,19 +174,6 @@
             <div id="rangeTemp">Range: -- °C</div>
             <div id="hotPixels">Hot Pixels: --</div>
             <div id="hotspotStrength">Hotspot Strength: --</div>
-        </div>
-    </div>
-
-    <div id="resetModal">
-        <div id="resetBox">
-            <h2>⚠ HARDWARE RESET</h2>
-            <p>This will reboot the device.</p>
-            <p>Are you sure?</p>
-
-            <div class="resetButtons">
-                <button id="cancelReset">Cancel</button>
-                <button id="confirmReset">Reset</button>
-            </div>
         </div>
     </div>
 
@@ -535,35 +388,6 @@
         }
 
         fetchAndRenderImage();
-
-
-        const resetBtn = document.getElementById("resetButton");
-        const modal = document.getElementById("resetModal");
-        const confirmReset = document.getElementById("confirmReset");
-        const cancelReset = document.getElementById("cancelReset");
-
-        resetBtn.onclick = () => {
-            modal.classList.add("active");
-        };
-
-        cancelReset.onclick = () => {
-            modal.classList.remove("active");
-        };
-
-        confirmReset.onclick = () => {
-
-            confirmReset.innerHTML = "Resetting...";
-
-            fetch("/hw_reset")   // GET request fixes your 404
-                .then(() => {
-                    confirmReset.innerHTML = "Rebooting...";
-                })
-                .catch(() => {
-                    confirmReset.innerHTML = "Error";
-                });
-        };
-
-
     </script>
 </body>
 
