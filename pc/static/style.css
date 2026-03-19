@@ -149,6 +149,21 @@ body {
   color: #ffcc00;
 }
 
+.stats-columns {
+  display: flex;
+  gap: 20px;           /* space between columns */
+  justify-content: center;
+  flex-wrap: wrap;      /* wrap on smaller screens */
+}
+
+.stats-column {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;            /* space between items */
+  min-width: 200px;    /* optional, to keep columns from collapsing too much */
+  flex: 1;
+}
+
 /* Histogram */
 
 #histogram-wrapper {

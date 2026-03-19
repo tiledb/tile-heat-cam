@@ -1,0 +1,22 @@
+[Unit]
+Description=Tile-HeatCam
+After=network-online.target
+Wants=network-online.target
+
+
+[Service]
+User=tiledb
+Group=tiledb
+WorkingDirectory=/home/tiledb/apps/tile-heat-cam/pc
+ExecStart=/home/tiledb/apps/tile-heat-cam/pc/.pyenv/bin/python /home/tiledb/apps/tile-heat-cam/pc/webapp.py
+Restart=always
+RestartSec=5
+
+# Optional but recommended
+Environment="PYTHONUNBUFFERED=1"
+Environment="VIRTUAL_ENV=/home/tiledb/apps/tile-heat-cam/pc/.pyenv/"
+Environment="PATH=/home/tiledb/apps/tile-heat-cam/pc/.pyenv/bin:/usr/bin"
+# Environment="LD_LIBRARY_PATH=/usr/local/lib"
+
+[Install]
+WantedBy=multi-user.target
