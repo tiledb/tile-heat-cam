@@ -1,43 +1,100 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <title>Thermal Dashboard</title>
-
     <link
       rel="stylesheet"
       href="{{ url_for('static', filename='style.css') }}"
     />
-
-    <!-- Plotly -->
     <script src="https://piro-atlas-lab.fysik.su.se/weblibs/plotly-3.1.1.min.js"></script>
   </head>
-
   <body>
     <button id="resetButton" title="Hardware Reset">⟲</button>
 
     <div id="container">
-      <div id="heatmap-wrapper">
-        <canvas id="image"></canvas>
-        <div class="canvas-labels">
-          <div id="minCanvasLabel"></div>
-          <div id="maxCanvasLabel"></div>
+      <div id="historyControls" class="card">
+        <div class="history-header">
+          <span>Time Control</span>
+          <span id="historySliderLabel">--</span>
         </div>
 
-        <div class="gradient-block">
-          <div class="gradient-bar"></div>
-          <div class="gradient-labels">
-            <span id="minGradientLabel">Min</span>
-            <span id="midGradientLabel">Mid</span>
-            <span id="maxGradientLabel">Max</span>
+        <div class="history-row">
+          <input type="range" id="historySlider" min="0" value="0" />
+
+          <div class="history-buttons">
+            <button id="liveButton" title="Go Live">●</button>
+            <button id="playHistory" title="Play/Pause">▶</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="container">
+      <!-- HEATMAP + HISTOGRAM -->
+      <div id="heatmap-histogram-container">
+        <div id="heatmap-wrapper">
+          <div
+            id="cursorInfo"
+            style="margin-bottom: 10px; font-family: monospace; color: #eee"
+          >
+            Hover: --
+          </div>
+          <canvas id="image"></canvas>
+          <div class="canvas-labels">
+            <div id="minCanvasLabel"></div>
+            <div id="maxCanvasLabel"></div>
+          </div>
+          <div class="gradient-block">
+            <div class="gradient-bar"></div>
+            <div class="gradient-labels">
+              <span id="minGradientLabel">Min</span>
+              <span id="midGradientLabel">Mid</span>
+              <span id="maxGradientLabel">Max</span>
+            </div>
+          </div>
+
+          <div class="gradient-controls">
+            <label>
+              <input type="checkbox" id="dynamicScaleToggle" checked />
+              Dynamic Scale
+            </label>
+
+            <label>
+              Gamma: <span id="gammaValue">1.0</span>
+              <input
+                type="range"
+                id="gammaSlider"
+                min="0.1"
+                max="10"
+                step="0.01"
+                value="1"
+              />
+            </label>
+          </div>
+        </div>
+
+        <!-- Histogram wrapper -->
+        <div id="histogram-wrapper">
+          <div id="histogram"></div>
+        </div>
+      </div>
+
+      <!-- FLAGS -->
+      <div id="flags-wrapper">
+        <div class="led-panel">
+          <div class="led-container">
+            <span>Overheat</span>
+            <div id="overheatFlag" class="led"></div>
+          </div>
+          <div class="led-container">
+            <span>Burn-In</span>
+            <div id="burnInFlag" class="led"></div>
           </div>
         </div>
       </div>
 
-      <div id="stats">
-        <div id="histogram"></div>
-      </div>
-
+      <!-- STATS -->
       <div id="stats">
         <h2>Thermal Stats</h2>
         <div id="minTemp">Min: -- °C</div>
@@ -46,17 +103,28 @@
         <div id="medianTemp">Median: -- °C</div>
         <div id="stdevTemp">Std Dev: --</div>
         <div id="rangeTemp">Range: -- °C</div>
-        <div id="hotPixels">Hot Pixels: --</div>
+        <div id="burnInPixels">Burn-In Pixels (65–70°C): --</div>
+        <div id="overtempPixels">OverTemp Pixels (>70°C): --</div>
         <div id="hotspotStrength">Hotspot Strength: --</div>
+
+        <h3>Position</h3>
+        <div id="centerPos">Center: --</div>
+        <div id="hotspotPos">Hotspot (x,y): --</div>
+        <div id="coldspotPos">Coldspot (x,y): --</div>
+
+        <h3>Distribution</h3>
+        <div id="p10Val">P10: --</div>
+        <div id="p90Val">P90: --</div>
+        <div id="hotArea">Hot Area (>70°C): --</div>
       </div>
     </div>
 
+    <!-- RESET MODAL -->
     <div id="resetModal">
       <div id="resetBox">
         <h2>⚠ HARDWARE RESET</h2>
         <p>This will reboot the device.</p>
         <p>Are you sure?</p>
-
         <div class="resetButtons">
           <button id="cancelReset">Cancel</button>
           <button id="confirmReset">Reset</button>
