@@ -377,12 +377,70 @@ const historySlider = document.getElementById("historySlider");
 const historySliderLabel = document.getElementById("historySliderLabel");
 const playButton = document.getElementById("playHistory");
 const liveButton = document.getElementById("liveButton");
+const startInput = document.getElementById("startTime");
+const endInput = document.getElementById("endTime");
+const applyButton = document.getElementById("applyRange");
+const playSpeedSelect = document.getElementById("playSpeed");
+let playbackSpeed = parseInt(playSpeedSelect.value, 10);
+
+playSpeedSelect.addEventListener("change", () => {
+  playbackSpeed = parseInt(playSpeedSelect.value, 10);
+});
 
 let historyFrames = [];
 let historyStats = [];
 let historyTimes = [];
 let useLiveData = true;
 let playInterval = null;
+
+applyButton.addEventListener("click", async () => {
+  const startVal = startInput.value;
+  const endVal = endInput.value;
+
+  if (!startVal && !endVal) {
+    alert("Select at least one time bound");
+    return;
+  }
+
+  // Convert to ISO (Influx expects this)
+  const startISO = startVal ? new Date(startVal).toISOString() : null;
+  const endISO = endVal ? new Date(endVal).toISOString() : null;
+
+  let url = "/history?";
+  if (startISO) url += `start=${encodeURIComponent(startISO)}&`;
+  if (endISO) url += `end=${encodeURIComponent(endISO)}`;
+
+  try {
+    const res = await fetch(url);
+    const json = await res.json();
+
+    historyFrames = json.frames;
+    historyStats = json.stats;
+    historyTimes = json.times;
+
+    historySlider.max = historyFrames.length - 1;
+    historySlider.value = historyFrames.length - 1;
+
+    useLiveData = false;
+
+    if (historyFrames.length > 0) {
+      lastData = historyFrames[historyFrames.length - 1].flat();
+      drawHeatmap(lastData);
+      updateStatsPanel(historyStats[historyStats.length - 1]);
+
+      const ts = new Date(historyTimes[historyTimes.length - 1]);
+      historySliderLabel.textContent = `Time: ${ts.toLocaleString()}`;
+    }
+  } catch (err) {
+    console.error(err);
+  }
+});
+
+startInput.addEventListener("change", () => {
+  if (!endInput.value) {
+    endInput.value = new Date().toISOString().slice(0, 16);
+  }
+});
 
 function updateLiveLabel() {
   const now = new Date();
@@ -411,32 +469,29 @@ async function fetchHistory(startTime = null) {
 }
 
 function updateFromSlider() {
-  const idx = parseInt(historySlider.value, 10);
-  let tsText;
+  let idx = parseInt(historySlider.value, 10);
+
+  // Clamp to valid range
   if (idx >= historyFrames.length) {
-    useLiveData = true;
-    updateLiveLabel();
-  } else {
-    useLiveData = false;
+    idx = historyFrames.length - 1;
+  }
+  if (idx < 0) idx = 0;
 
-    liveButton.classList.remove("active");
+  const frame = historyFrames[idx];
+  const stats = historyStats[idx];
 
-    lastData = historyFrames[idx].flat();
-    drawHeatmap(lastData);
-    updateStatsPanel(historyStats[idx]);
-
-    const ts = new Date(historyTimes[idx]);
-    historySliderLabel.textContent = `Time: ${ts.toLocaleString()}`;
+  // Safety check
+  if (!frame || !stats) {
+    console.warn("Missing frame/stats at index:", idx);
+    return;
   }
 
-  // optional: LED near label for live
-  if (useLiveData) {
-    historySliderLabel.classList.add("live");
-    liveButton.classList.add("active");
-  } else {
-    historySliderLabel.classList.remove("live");
-    liveButton.classList.remove("active");
-  }
+  lastData = frame.flat();
+  drawHeatmap(lastData);
+  updateStatsPanel(stats);
+
+  const ts = new Date(historyTimes[idx]);
+  historySliderLabel.textContent = `Time: ${ts.toLocaleString()}`;
 }
 
 historySlider.addEventListener("input", updateFromSlider);
@@ -487,30 +542,39 @@ playButton.addEventListener("click", () => {
   let idx = parseInt(historySlider.value, 10);
 
   playInterval = setInterval(() => {
-    if (idx >= historyFrames.length) {
+    if (idx > historyFrames.length - 1) {
       clearInterval(playInterval);
       playInterval = null;
-      useLiveData = true;
 
+      useLiveData = true;
       playButton.textContent = "▶";
       playButton.classList.remove("active");
 
-      historySlider.value = historyFrames.length;
-      historySliderLabel.textContent = "Live";
+      updateLiveLabel();
       return;
     }
 
-    lastData = historyFrames[idx].flat();
-    drawHeatmap(lastData);
-    updateStatsPanel(historyStats[idx]);
+    // 🔥 KEY: skip frames instead of speeding timer
+    const step = playbackSpeed;
 
-    historySlider.value = idx;
+    const safeIdx = Math.min(idx, historyFrames.length - 1);
 
-    const ts = new Date(historyTimes[idx]);
-    historySliderLabel.textContent = `Time: ${ts.toLocaleString()}`;
+    const frame = historyFrames[safeIdx];
+    const stats = historyStats[safeIdx];
 
-    idx++;
-  }, 1000);
+    if (frame && stats) {
+      lastData = frame.flat();
+      drawHeatmap(lastData);
+      updateStatsPanel(stats);
+
+      const ts = new Date(historyTimes[safeIdx]);
+      historySliderLabel.textContent = `Time: ${ts.toLocaleString()}`;
+    }
+
+    historySlider.value = safeIdx;
+
+    idx += step;
+  }, 33); // ~30 FPS (stable & smooth)
 });
 
 // ---------------------------
@@ -582,3 +646,27 @@ fetchHistory().then(() => {
   useLiveData = true;
 });
 fetchLoop();
+
+document.addEventListener("DOMContentLoaded", () => {
+  const now = new Date();
+  const fiveMinAgo = new Date(now.getTime() - 5 * 60 * 1000);
+
+  // Format for datetime-local (YYYY-MM-DDTHH:MM)
+  function toLocalInputFormat(date) {
+    const pad = (n) => n.toString().padStart(2, "0");
+    return (
+      date.getFullYear() +
+      "-" +
+      pad(date.getMonth() + 1) +
+      "-" +
+      pad(date.getDate()) +
+      "T" +
+      pad(date.getHours()) +
+      ":" +
+      pad(date.getMinutes())
+    );
+  }
+
+  startInput.value = toLocalInputFormat(fiveMinAgo);
+  endInput.value = toLocalInputFormat(now);
+});

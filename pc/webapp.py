@@ -182,20 +182,41 @@ def store_frame(frame, reason="periodic"):
     influxdb.write_points(json_body)
 
 
+from flask import request, jsonify
+
 @app.route("/history")
 def history():
     try:
+        start = request.args.get("start")
+        end = request.args.get("end")
+
+        # Build time filter
+        time_filter = ""
+
+        if start and end:
+            time_filter = f"AND time >= '{start}' AND time <= '{end}'"
+        elif start:
+            time_filter = f"AND time >= '{start}'"
+        elif end:
+            time_filter = f"AND time <= '{end}'"
+
+        # If no time filter → use LIMIT
+        limit_clause = "" if time_filter else "LIMIT 1000"
+
         frames_query = f"""
         SELECT frame FROM "Heat-Camera"
         WHERE "type" = '{the_secrets.BOARD_ID}-frame'
+        {time_filter}
         ORDER BY time DESC
-        LIMIT 1000
+        {limit_clause}
         """
+
         stats_query = f"""
         SELECT * FROM "Heat-Camera"
         WHERE "type" = '{the_secrets.BOARD_ID}-stats'
+        {time_filter}
         ORDER BY time DESC
-        LIMIT 1000
+        {limit_clause}
         """
 
         frames_res = influxdb.query(frames_query)
@@ -203,13 +224,14 @@ def history():
 
         frames = []
         frame_times = []
+
         for p in frames_res.get_points():
             frames.append(json.loads(p["frame"]))
             frame_times.append(p["time"])
 
         stats = [p for p in stats_res.get_points()]
 
-        # reverse to chronological order
+        # chronological order
         frames.reverse()
         stats.reverse()
         frame_times.reverse()
@@ -217,7 +239,7 @@ def history():
         return jsonify({
             "frames": frames,
             "stats": stats,
-            "times": frame_times  # <--- send timestamps
+            "times": frame_times
         })
 
     except Exception as e:

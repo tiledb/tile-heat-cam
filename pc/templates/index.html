@@ -19,12 +19,42 @@
           <span id="historySliderLabel">--</span>
         </div>
 
+        <!-- NEW: datetime range -->
+        <div class="history-datetime">
+          <label>
+            From:
+            <input type="datetime-local" id="startTime" />
+          </label>
+          <label>
+            To:
+            <input type="datetime-local" id="endTime" />
+          </label>
+          <button id="applyRange">Apply</button>
+        </div>
+
+        <!-- Existing slider row -->
         <div class="history-row">
           <input type="range" id="historySlider" min="0" value="0" />
 
           <div class="history-buttons">
-            <button id="liveButton" title="Go Live">●</button>
-            <button id="playHistory" title="Play/Pause">▶</button>
+            <select id="playSpeed" title="Playback speed">
+              <option value="1">1x</option>
+              <option value="2">2x</option>
+              <option value="4">4x</option>
+              <option value="8">8x</option>
+              <option value="16">16x</option>
+              <option value="32">32x</option>
+              <option value="64">64x</option>
+              <option value="128">128x</option>
+              <option value="256">256x</option>
+              <option value="512">512x</option>
+              <option value="1024">1024x</option>
+              <option value="2048">2048x</option>
+              <option value="4096">4096x</option>
+            </select>
+
+            <button id="liveButton">●</button>
+            <button id="playHistory">▶</button>
           </div>
         </div>
       </div>
