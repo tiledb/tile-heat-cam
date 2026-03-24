@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Thermal Dashboard</title>
+
+    <!-- Plotly for histogram -->
+    <script src="https://piro-atlas-lab.fysik.su.se/weblibs/plotly-3.1.1.min.js"></script>
+
+    <style>
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+            background: #1a1a2e;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #eee;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        #container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+            width: 90%;
+            max-width: 1200px;
+        }
+
+        #heatmap-wrapper {
+            position: relative;
+            background: #0f0f1a;
+            border-radius: 12px;
+            padding: 15px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        #image {
+            z-index: 1;
+            filter: blur(4px);
+            border-radius: 8px;
+            transition: filter 0.3s ease;
+        }
+
+        .canvas-labels {
+            position: absolute;
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        .canvas-labels div {
+            position: absolute;
+            text-align: center;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            text-shadow: 0 0 6px rgba(255, 255, 255, 0.6);
+        }
+
+        #minCanvasLabel {
+            color: #00d1ff;
+        }
+
+        #maxCanvasLabel {
+            color: #ff4c4c;
+        }
+
+        .gradient-block {
+            margin-top: 10px;
+            width: 100%;
+            max-width: 600px;
+            text-align: center;
+        }
+
+        .gradient-bar {
+            height: 25px;
+            border-radius: 8px;
+            background: linear-gradient(to right, #000000, #cc0077, #ffd700, #ffffff);
+            box-shadow: inset 0 0 6px rgba(255, 255, 255, 0.2);
+        }
+
+        .gradient-labels {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 5px;
+            font-size: 1rem;
+            color: #fff;
+        }
+
+        /* Glow animation for gradient labels */
+        .gradient-labels span {
+            animation: glow 2s infinite alternate;
+        }
+
+        @keyframes glow {
+            0% {
+                text-shadow: 0 0 5px #ffcc00;
+            }
+
+            100% {
+                text-shadow: 0 0 15px #ffcc00, 0 0 20px #ffcc00;
+            }
+        }
+
+        #histogram {
+            width: 100%;
+            max-width: 600px;
+            height: 250px;
+        }
+
+        #stats {
+            background: #222236;
+            border-radius: 12px;
+            padding: 15px 25px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            text-align: center;
+            width: 100%;
+            max-width: 600px;
+        }
+
+        #stats h2 {
+            color: #ffcc00;
+            text-shadow: 0 0 8px #ffcc00;
+            margin-bottom: 10px;
+            animation: glow 2s infinite alternate;
+        }
+
+        #stats div {
+            margin: 5px 0;
+            font-size: 1.1rem;
+        }
+
+        #heatmap-wrapper:hover #image {
+            filter: blur(2px);
+        }
+
+        /* RESET BUTTON */
+
+        #resetButton {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            width: 60px;
+            height: 60px;
+
+            border-radius: 50%;
+            border: none;
+
+            font-size: 28px;
+            cursor: pointer;
+
+            color: white;
+            background: linear-gradient(135deg, #ff4c4c, #ff0000);
+
+            box-shadow: 0 0 15px rgba(255, 0, 0, 0.6);
+
+            transition: all 0.25s ease;
+
+            z-index: 1000;
+        }
+
+        #resetButton:hover {
+            transform: scale(1.15) rotate(-15deg);
+        }
+
+        #resetButton:active {
+            transform: scale(0.9) rotate(180deg);
+        }
+
+
+        /* RESET MODAL */
+
+        #resetModal {
+            position: fixed;
+            inset: 0;
+
+            display: flex;
+            justify-content: center;
+            align-items: center;
+
+            backdrop-filter: blur(6px);
+
+            background: rgba(0, 0, 0, 0.6);
+
+            opacity: 0;
+            pointer-events: none;
+
+            transition: opacity 0.3s ease;
+
+            z-index: 2000;
+        }
+
+        #resetModal.active {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+
+        /* MODAL BOX */
+
+        #resetBox {
+            background: #0f0f1a;
+            border-radius: 12px;
+
+            padding: 30px 40px;
+
+            text-align: center;
+
+            box-shadow:
+                0 0 20px rgba(255, 0, 0, 0.5),
+                0 0 40px rgba(255, 0, 0, 0.2);
+
+            transform: scale(0.8);
+            transition: transform 0.3s ease;
+        }
+
+        #resetModal.active #resetBox {
+            transform: scale(1);
+        }
+
+        #resetBox h2 {
+            color: #ff4c4c;
+            text-shadow: 0 0 10px #ff0000;
+        }
+
+
+        /* BUTTONS */
+
+        .resetButtons {
+            margin-top: 20px;
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+        }
+
+        .resetButtons button {
+            padding: 10px 20px;
+
+            border-radius: 8px;
+            border: none;
+
+            font-size: 16px;
+            cursor: pointer;
+
+            transition: all 0.2s ease;
+        }
+
+        #cancelReset {
+            background: #444;
+            color: white;
+        }
+
+        #cancelReset:hover {
+            background: #666;
+        }
+
+        #confirmReset {
+            background: linear-gradient(135deg, #ff4c4c, #ff0000);
+            color: white;
+
+            box-shadow: 0 0 10px rgba(255, 0, 0, 0.6);
+        }
+
+        #confirmReset:hover {
+            transform: scale(1.1);
+        }
+    </style>
+</head>
+
+
+
+<body>
+    <button id="resetButton" title="Hardware Reset">⟲</button>
+    <div id="container">
+        <div id="heatmap-wrapper">
+            <canvas id="image"></canvas>
+            <div class="canvas-labels">
+                <div id="minCanvasLabel"></div>
+                <div id="maxCanvasLabel"></div>
+            </div>
+            <div class="gradient-block">
+                <div class="gradient-bar"></div>
+                <div class="gradient-labels">
+                    <span id="minGradientLabel">Min</span>
+                    <span id="midGradientLabel">Mid</span>
+                    <span id="maxGradientLabel">Max</span>
+                </div>
+            </div>
+        </div>
+        <div id="stats">
+            <div id="histogram"></div>
+        </div>
+        <div id="stats">
+            <h2>Thermal Stats</h2>
+
+            <div id="minTemp">Min: -- °C</div>
+            <div id="maxTemp">Max: -- °C</div>
+            <div id="avgTemp">Avg: -- °C</div>
+            <div id="medianTemp">Median: -- °C</div>
+            <div id="stdevTemp">Std Dev: --</div>
+            <div id="rangeTemp">Range: -- °C</div>
+            <div id="hotPixels">Hot Pixels: --</div>
+            <div id="hotspotStrength">Hotspot Strength: --</div>
+        </div>
+    </div>
+
+    <div id="resetModal">
+        <div id="resetBox">
+            <h2>⚠ HARDWARE RESET</h2>
+            <p>This will reboot the device.</p>
+            <p>Are you sure?</p>
+
+            <div class="resetButtons">
+                <button id="cancelReset">Cancel</button>
+                <button id="confirmReset">Reset</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const width = 32;
+        const height = 24;
+        const canvas = document.getElementById('image');
+        const ctx = canvas.getContext('2d');
+
+        const minGradientLabel = document.getElementById('minGradientLabel');
+        const midGradientLabel = document.getElementById('midGradientLabel');
+        const maxGradientLabel = document.getElementById('maxGradientLabel');
+
+        const minCanvasLabel = document.getElementById('minCanvasLabel');
+        const maxCanvasLabel = document.getElementById('maxCanvasLabel');
+
+        const minTempEl = document.getElementById('minTemp');
+        const maxTempEl = document.getElementById('maxTemp');
+        const avgTempEl = document.getElementById('avgTemp');
+        const medianTempEl = document.getElementById('medianTemp');
+        const stdevTempEl = document.getElementById('stdevTemp');
+        const rangeTempEl = document.getElementById('rangeTemp');
+        const hotPixelsEl = document.getElementById('hotPixels');
+        const hotspotStrengthEl = document.getElementById('hotspotStrength');
+        const histogramEl = document.getElementById('histogram');
+
+        let lastData = null;
+        let blockSize = 20;
+        const histogramHistory = [];
+        const maxHistory = 10;
+
+        // Gradient lookup table
+        const gradientSize = 1000;
+        const gradientLookupTable = [];
+        const gradientStops = [
+            { pos: 0, color: [0, 0, 0] },
+            { pos: 0.33, color: [204, 0, 119] },
+            { pos: 0.66, color: [255, 215, 0] },
+            { pos: 1, color: [255, 255, 255] },
+        ];
+        for (let i = 0; i < gradientSize; ++i) {
+            const pos = i / (gradientSize - 1);
+            for (let j = 0; j < gradientStops.length - 1; ++j) {
+                const start = gradientStops[j];
+                const end = gradientStops[j + 1];
+                if (pos >= start.pos && (pos < end.pos || end.pos === 1)) {
+                    const localPos = (pos - start.pos) / (end.pos - start.pos);
+                    const r = start.color[0] + localPos * (end.color[0] - start.color[0]);
+                    const g = start.color[1] + localPos * (end.color[1] - start.color[1]);
+                    const b = start.color[2] + localPos * (end.color[2] - start.color[2]);
+                    gradientLookupTable.push([Math.round(r), Math.round(g), Math.round(b)]);
+                    break;
+                }
+            }
+        }
+
+        // Resize canvas to fit wrapper
+        function resizeCanvas() {
+            const wrapper = document.getElementById('heatmap-wrapper');
+            blockSize = Math.floor(Math.min(wrapper.clientWidth / width, wrapper.clientHeight / height));
+            canvas.width = width * blockSize;
+            canvas.height = height * blockSize;
+            if (lastData) drawHeatmap(lastData);
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        function getArrCoordinates(index, width) {
+            const y = Math.floor(index / width);
+            const x = index - y * width;
+            return [x, y];
+        }
+
+        function temperatureToColor(temp, minTemp, maxTemp) {
+            const value = (temp - minTemp) / (maxTemp - minTemp);
+            const index = Math.min(Math.max(Math.floor(value * (gradientSize - 1)), 0), gradientSize - 1);
+            const color = gradientLookupTable[index];
+            return `rgb(${color.join(',')})`;
+        }
+
+        function mirrorThermalImage(data) {
+            for (let y = 0; y < height; ++y) {
+                for (let x = 0; x < width / 2; ++x) {
+                    const temp = data[y * width + x];
+                    data[y * width + x] = data[y * width + (width - x - 1)];
+                    data[y * width + (width - x - 1)] = temp;
+                }
+            }
+        }
+
+        function drawHeatmap(data) {
+            mirrorThermalImage(data);
+
+            // Find min/max indices
+            let minIndex = 0, maxIndex = 0;
+            for (let i = 1; i < data.length; ++i) {
+                if (data[i] < data[minIndex]) minIndex = i;
+                else if (data[i] > data[maxIndex]) maxIndex = i;
+            }
+
+            const minTemp = data[minIndex];
+            const maxTemp = data[maxIndex];
+            const midTemp = (minTemp + maxTemp) / 2;
+            const avgTemp = data.reduce((a, b) => a + b, 0) / data.length;
+
+            // Gradient labels
+            minGradientLabel.textContent = `${minTemp.toFixed(1)}°C`;
+            midGradientLabel.textContent = `${midTemp.toFixed(1)}°C`;
+            maxGradientLabel.textContent = `${maxTemp.toFixed(1)}°C`;
+
+            // Canvas min/max labels
+            const minCoords = getArrCoordinates(minIndex, width);
+            const maxCoords = getArrCoordinates(maxIndex, width);
+            minCanvasLabel.style.width = `${blockSize}px`;
+            minCanvasLabel.style.lineHeight = `${blockSize}px`;
+            minCanvasLabel.style.top = `${minCoords[1] * blockSize}px`;
+            minCanvasLabel.style.left = `${minCoords[0] * blockSize}px`;
+            maxCanvasLabel.style.width = `${blockSize}px`;
+            maxCanvasLabel.style.lineHeight = `${blockSize}px`;
+            maxCanvasLabel.style.top = `${maxCoords[1] * blockSize}px`;
+            maxCanvasLabel.style.left = `${maxCoords[0] * blockSize}px`;
+
+            // Draw heatmap
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            for (let y = 0; y < height; ++y) {
+                for (let x = 0; x < width; ++x) {
+                    ctx.fillStyle = temperatureToColor(data[y * width + x], minTemp, maxTemp);
+                    ctx.fillRect(x * blockSize, y * blockSize, blockSize, blockSize);
+                }
+            }
+
+            // Compute advanced stats in JS
+            const n = data.length;
+            const sortedData = Array.from(data).sort((a, b) => a - b);
+            const median = sortedData[Math.floor(n / 2)];
+            let variance = 0;
+            let hotPixels = 0;
+            const hotThreshold = 60.0;
+
+            for (let i = 0; i < n; i++) {
+                const d = data[i] - avgTemp;
+                variance += d * d;
+                if (data[i] > hotThreshold) hotPixels++;
+            }
+
+            const stdev = Math.sqrt(variance / n);
+            const range = maxTemp - minTemp;
+            const hotspotStrength = maxTemp - median;
+
+            // Update stats panel
+            minTempEl.textContent = `Min: ${minTemp.toFixed(1)} °C`;
+            maxTempEl.textContent = `Max: ${maxTemp.toFixed(1)} °C`;
+            avgTempEl.textContent = `Avg: ${avgTemp.toFixed(1)} °C`;
+            medianTempEl.textContent = `Median: ${median.toFixed(1)} °C`;
+            stdevTempEl.textContent = `Std Dev: ${stdev.toFixed(2)}`;
+            rangeTempEl.textContent = `Range: ${range.toFixed(1)} °C`;
+            hotPixelsEl.textContent = `Hot Pixels: ${hotPixels}`;
+            hotspotStrengthEl.textContent = `Hotspot Strength: ${hotspotStrength.toFixed(1)} °C`;
+
+            // Update histogram
+            // Update histogram with fading historical samples
+            histogramHistory.push([...data]);
+            if (histogramHistory.length > maxHistory) histogramHistory.shift();
+
+            // Create traces
+            const traces = histogramHistory.map((arr, i) => {
+                const opacity = 0.2 + 0.8 * (i + 1) / histogramHistory.length; // oldest = faint, newest = strong
+                return {
+                    x: Array.from(arr),
+                    type: 'histogram',
+                    opacity: opacity,
+                    marker: { color: '#00d1ff' },
+                    autobinx: false,
+                    xbins: { start: 20, end: 80, size: 1 }
+                };
+            });
+
+            // Layout with overlay
+            const layout = {
+                margin: { t: 20, l: 40, r: 20, b: 40 },
+                height: 250,
+                width: 600,
+                bargap: 0.1,
+                barmode: 'overlay',       // <-- this makes bars overlap
+                xaxis: { title: 'Temperature (°C)', range: [20, 80], tickfont: { size: 12 } },
+                yaxis: { title: 'Count', tickfont: { size: 12 } },
+                paper_bgcolor: '#0f0f1a',
+                plot_bgcolor: '#1a1a2e',
+                font: { color: '#eee' }
+            };
+
+            // Draw plot
+            Plotly.newPlot(histogramEl, traces, layout, { displayModeBar: false });
+        }
+
+        // Fetch and render loop
+        function fetchAndRenderImage() {
+            const startedAt = Date.now();
+            const minDelay = 2000;
+
+            fetch('./byte_array')
+                .then(r => r.arrayBuffer())
+                .then(buf => {
+                    const data = new Float32Array(buf);
+                    lastData = data;
+                    if (data.length === width * height) drawHeatmap(data);
+                })
+                .catch(err => console.error(err))
+                .finally(() =>
+                    setTimeout(fetchAndRenderImage, Math.max(minDelay - (Date.now() - startedAt), 0))
+                );
+        }
+
+        fetchAndRenderImage();
+
+
+        const resetBtn = document.getElementById("resetButton");
+        const modal = document.getElementById("resetModal");
+        const confirmReset = document.getElementById("confirmReset");
+        const cancelReset = document.getElementById("cancelReset");
+
+        resetBtn.onclick = () => {
+            modal.classList.add("active");
+        };
+
+        cancelReset.onclick = () => {
+            modal.classList.remove("active");
+        };
+
+        confirmReset.onclick = () => {
+
+            confirmReset.innerHTML = "Resetting...";
+
+            fetch("/hw_reset")   // GET request fixes your 404
+                .then(() => {
+                    confirmReset.innerHTML = "Rebooting...";
+                })
+                .catch(() => {
+                    confirmReset.innerHTML = "Error";
+                });
+        };
+
+
+    </script>
+</body>
+
+</html>

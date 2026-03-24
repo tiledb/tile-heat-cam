@@ -8,6 +8,7 @@ import time
 import secrets
 
 
+# Wi-Fi / MQTT configuration
 WIFI_SSID = secrets.WIFI_SSID
 WIFI_PASSWORD = secrets.WIFI_PASSWORD
 MQTT_BROKER = secrets.MQTT_BROKER
@@ -18,10 +19,12 @@ class IrCameraServer:
 
     def __init__(self):
 
-        # ---- RESET PIN ----
+        # ---- RESET PIN SETUP ----
+        # GP22 connected to RUN
+        # Keep high impedance normally
         self.reset_pin = machine.Pin(22, machine.Pin.IN)
 
-        # ---- I2C ----
+        # ---- I2C SETUP ----
         i2c = machine.I2C(1, sda=machine.Pin(2), scl=machine.Pin(3), freq=400000)
         print("I2C Devices Found:", [hex(dev) for dev in i2c.scan()])
 
@@ -38,6 +41,8 @@ class IrCameraServer:
         )
 
         print("Connecting to Wi-Fi...")
+        print(f"MAC Address: {self.net.mac_addr}")
+
         while not self.net.connect_wifi():
             print("Retrying Wi-Fi...")
             time.sleep(5)
@@ -45,55 +50,34 @@ class IrCameraServer:
         self.ip = self.net.wlan.ifconfig()[0]
         print(f"Connected! IP: {self.ip}")
 
-        # ---- SERVER ----
+        # ---- HTTP SERVER ----
         self.server = MicroPyServer(host=self.ip)
 
-        self.server.add_route('/', self.wrap(self.show_index))
-        self.server.add_route('/byte_array', self.wrap(self.show_result))
-        self.server.add_route('/temp_array', self.wrap(self.show_temperature_json))
-        self.server.add_route('/stats', self.wrap(self.compute_std_thermal_stats))
-        self.server.add_route('/adv_stats', self.wrap(self.compute_adv_thermal_stats))
+        self.server.add_route('/', self.show_index)
+        self.server.add_route('/byte_array', self.show_result)
+        self.server.add_route('/temp_array', self.show_temperature_json)
+        self.server.add_route('/stats', self.compute_std_thermal_stats)
+        self.server.add_route('/adv_stats', self.compute_adv_thermal_stats)
+
+        # Hardware reset endpoint
         self.server.add_route('/hw_reset', self.hw_reset)
 
-    # ---------------------------------------------------
-    # ERROR HANDLING CORE
-    # ---------------------------------------------------
-
-    def fail_and_reset(self, msg, err):
-        print("ERROR:", msg)
-        print("DETAILS:", err)
-        print("Sleeping 5s before reset...")
-        time.sleep(5)
-        self.hw_reset(None)
-
-    def guard(self, func, *args, **kwargs):
-        try:
-            return func(*args, **kwargs)
-        except Exception as e:
-            self.fail_and_reset(func.__name__, e)
-
-    def wrap(self, handler):
-        def wrapped(request):
-            try:
-                return handler(request)
-            except Exception as e:
-                self.fail_and_reset(handler.__name__, e)
-        return wrapped
 
     # ---------------------------------------------------
-    # INDEX
+    # INDEX PAGE
     # ---------------------------------------------------
 
     def show_index(self, request):
 
         self.server.send('HTTP/1.0 200 OK\r\n')
-        self.server.send('Content-Type: text/html\r\n\r\n')
+        self.server.send('Content-Type: text/html; charset=utf-8\r\n\r\n')
 
         try:
-            with open('server.html', 'r') as f:
-                self.server.send(f.read())
-        except Exception as e:
-            self.fail_and_reset("index_file", e)
+            with open('server.html', 'r') as file:
+                self.server.send(file.read())
+        except:
+            self.server.send("<h1>server.html missing</h1>")
+
 
     # ---------------------------------------------------
     # RAW FRAME
@@ -104,73 +88,79 @@ class IrCameraServer:
         self.server.send('HTTP/1.0 200 OK\r\n')
         self.server.send('Content-Type: application/octet-stream\r\n\r\n')
 
-        self.guard(self.mlx.get_frame, self.frame)
+        self.mlx.get_frame(self.frame)
+        self.server.send_bytes(bytes(self.frame))
 
-        data = bytes(self.frame)
-        self.server.send_bytes(data)
+        self.net.publish("last_frame", bytes(self.frame))
 
-        self.guard(self.net.publish, "last_frame", data)
 
     # ---------------------------------------------------
-    # JSON FRAME
+    # TEMPERATURE JSON
     # ---------------------------------------------------
 
     def show_temperature_json(self, request):
 
-        self.guard(self.mlx.get_frame, self.frame)
+        self.mlx.get_frame(self.frame)
 
         temp_2d = [self.frame[i*32:(i+1)*32] for i in range(24)]
+
         payload = json.dumps(temp_2d)
 
         self.server.send('HTTP/1.0 200 OK\r\n')
-        self.server.send('Content-Type: application/json\r\n\r\n')
+        self.server.send('Content-Type: application/json; charset=utf-8\r\n\r\n')
         self.server.send(payload)
 
-        self.guard(self.net.publish, "last_frame_json", payload)
+        self.net.publish("last_frame_json", payload)
+
 
     # ---------------------------------------------------
-    # BASIC STATS
+    # STANDARD STATS
     # ---------------------------------------------------
 
     def compute_std_thermal_stats(self, request):
 
-        self.guard(self.mlx.get_frame, self.frame)
+        self.mlx.get_frame(self.frame)
 
         n = len(self.frame)
 
-        total = 0
-        min_val = self.frame[0]
-        max_val = self.frame[0]
+        if n == 0:
+            stats = {"avg": 0, "stdev": 0, "min": 0, "max": 0}
+        else:
 
-        for v in self.frame:
-            total += v
-            if v < min_val:
-                min_val = v
-            if v > max_val:
-                max_val = v
+            total = 0
+            min_val = self.frame[0]
+            max_val = self.frame[0]
 
-        avg = total / n
+            for val in self.frame:
+                total += val
+                if val < min_val:
+                    min_val = val
+                if val > max_val:
+                    max_val = val
 
-        var = 0
-        for v in self.frame:
-            var += (v - avg) ** 2
+            avg = total / n
 
-        stdev = math.sqrt(var / n)
+            variance = 0
+            for val in self.frame:
+                variance += (val - avg) ** 2
 
-        stats = {
-            "avg": avg,
-            "stdev": stdev,
-            "min": min_val,
-            "max": max_val
-        }
+            stdev = math.sqrt(variance / n)
+
+            stats = {
+                "avg": avg,
+                "stdev": stdev,
+                "min": min_val,
+                "max": max_val
+            }
 
         payload = json.dumps(stats)
 
         self.server.send('HTTP/1.0 200 OK\r\n')
-        self.server.send('Content-Type: application/json\r\n\r\n')
+        self.server.send('Content-Type: application/json; charset=utf-8\r\n\r\n')
         self.server.send(payload)
 
-        self.guard(self.net.publish, "last_frame_stats", payload)
+        self.net.publish("last_frame_stats", payload)
+
 
     # ---------------------------------------------------
     # ADVANCED STATS
@@ -180,8 +170,7 @@ class IrCameraServer:
 
         hot_threshold = 60.0
 
-        self.guard(self.mlx.get_frame, self.frame)
-
+        self.mlx.get_frame(self.frame)
         n = len(self.frame)
 
         total = 0.0
@@ -192,11 +181,15 @@ class IrCameraServer:
         center_pixel = self.frame[12 * 32 + 16]
 
         for v in self.frame:
+
             total += v
+
             if v < min_val:
                 min_val = v
+
             if v > max_val:
                 max_val = v
+
             if v > hot_threshold:
                 hot_pixels += 1
 
@@ -211,60 +204,68 @@ class IrCameraServer:
 
         sorted_frame = sorted(self.frame)
 
+        median = sorted_frame[n // 2]
+        p10 = sorted_frame[int(n * 0.10)]
+        p90 = sorted_frame[int(n * 0.90)]
+        p25 = sorted_frame[int(n * 0.25)]
+        p75 = sorted_frame[int(n * 0.75)]
+
         stats = {
             "avg": avg,
-            "median": sorted_frame[n // 2],
+            "median": median,
             "stdev": stdev,
             "min": min_val,
             "max": max_val,
             "range": max_val - min_val,
-            "p10": sorted_frame[int(n * 0.10)],
-            "p90": sorted_frame[int(n * 0.90)],
-            "iqr": sorted_frame[int(n * 0.75)] - sorted_frame[int(n * 0.25)],
+            "p10": p10,
+            "p90": p90,
+            "iqr": p75 - p25,
             "center": center_pixel,
             "hot_pixels": hot_pixels,
-            "hotspot_strength": max_val - sorted_frame[n // 2]
+            "hotspot_strength": max_val - median
         }
 
         self.server.send('HTTP/1.0 200 OK\r\n')
         self.server.send('Content-Type: application/json\r\n\r\n')
         self.server.send(json.dumps(stats))
 
+
     # ---------------------------------------------------
-    # HARD RESET
+    # HARDWARE RESET
     # ---------------------------------------------------
 
     def hw_reset(self, request):
 
-        try:
-            self.server.send("HTTP/1.0 200 OK\r\n")
-            self.server.send("Content-Type: text/plain\r\n\r\n")
-            self.server.send("Hardware reset triggered")
-        except:
-            pass
+        self.server.send("HTTP/1.0 200 OK\r\n")
+        self.server.send("Content-Type: text/plain\r\n\r\n")
+        self.server.send("Hardware reset triggered")
 
         time.sleep(0.2)
 
-        print("Resetting device...")
+        print("Pulling RUN low...")
 
+        # Switch pin to output low to reset Pico
         self.reset_pin.init(machine.Pin.OUT)
         self.reset_pin.value(0)
 
+        # MCU resets immediately, code never continues
+
+
     # ---------------------------------------------------
-    # RUN
+    # RUN SERVER
     # ---------------------------------------------------
 
     def run(self):
 
         print(f"Starting server at http://{self.ip}/")
-
-        try:
-            self.server.start()
-        except Exception as e:
-            self.fail_and_reset("server", e)
+        self.server.start()
 
 
 # -------------------------------------------------------
+# MAIN
+# -------------------------------------------------------
 
 if __name__ == "__main__":
-    IrCameraServer().run()
+
+    camera_server = IrCameraServer()
+    camera_server.run()
